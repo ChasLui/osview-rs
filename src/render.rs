@@ -26,6 +26,11 @@ pub struct Camera {
     pub radius: i32,
     pub range_min: f32,
     pub range_max: f32,
+    pub yaw: f32,
+    pub pitch: f32,
+    pub zoom: f32,
+    pub pan_x: i32,
+    pub pan_y: i32,
 }
 
 pub fn render(cloud: &Cloud, scores: &[f32], cam: &Camera) -> Vec<u8> {
@@ -47,21 +52,39 @@ pub fn render(cloud: &Cloud, scores: &[f32], cam: &Camera) -> Vec<u8> {
         View::YZ => 0,
     };
 
-    let mut lo = [f32::INFINITY; 2];
-    let mut hi = [f32::NEG_INFINITY; 2];
+    // Rotation happens in f64: rotating coordinates near f32::MAX overflows
+    // in f32 (a*cos + d*sin can exceed f32::MAX). yaw turns about the
+    // vertical screen axis, pitch tilts about the horizontal one.
+    let yaw = (cam.yaw as f64).to_radians();
+    let pitch = (cam.pitch as f64).to_radians();
+    let (sin_y, cos_y) = yaw.sin_cos();
+    let (sin_p, cos_p) = pitch.sin_cos();
+    let project = |p: &[f32; 3]| {
+        let a = p[ha] as f64;
+        let b = p[va] as f64;
+        let d = p[depth_axis] as f64;
+        let a1 = a * cos_y + d * sin_y;
+        let d1 = -a * sin_y + d * cos_y;
+        (a1, b * cos_p - d1 * sin_p, b * sin_p + d1 * cos_p)
+    };
+
+    let mut lo = [f64::INFINITY; 2];
+    let mut hi = [f64::NEG_INFINITY; 2];
     for p in &cloud.xyz {
-        for (k, axis) in [ha, va].iter().enumerate() {
-            lo[k] = lo[k].min(p[*axis]);
-            hi[k] = hi[k].max(p[*axis]);
-        }
+        let (a, b, _) = project(p);
+        lo[0] = lo[0].min(a);
+        hi[0] = hi[0].max(a);
+        lo[1] = lo[1].min(b);
+        hi[1] = hi[1].max(b);
     }
     // Work with half-spans and half-offsets: (hi + lo) and (hi - lo) can
-    // overflow to infinity for finite coordinates near f32::MAX.
+    // overflow to infinity for finite coordinates near the type's max.
     let span_a = (hi[0] * 0.5 - lo[0] * 0.5).abs().max(1e-6);
     let span_b = (hi[1] * 0.5 - lo[1] * 0.5).abs().max(1e-6);
     let margin = 0.04;
-    let scale = ((w as f32 * (1.0 - 2.0 * margin)) / span_a)
-        .min((h as f32 * (1.0 - 2.0 * margin)) / span_b);
+    let scale = ((w as f64 * (1.0 - 2.0 * margin)) / span_a)
+        .min((h as f64 * (1.0 - 2.0 * margin)) / span_b)
+        * cam.zoom as f64;
     let ca = lo[0] * 0.5 + hi[0] * 0.5;
     let cb = lo[1] * 0.5 + hi[1] * 0.5;
     let rng = (cam.range_max - cam.range_min).max(1e-6);
@@ -69,14 +92,17 @@ pub fn render(cloud: &Cloud, scores: &[f32], cam: &Camera) -> Vec<u8> {
     let w_i = w as i64;
     let h_i = h as i64;
     let r_i = (cam.radius as i64).min(w_i.max(h_i));
+    let pan_x = cam.pan_x as f64;
+    let pan_y = cam.pan_y as f64;
     for (i, p) in cloud.xyz.iter().enumerate() {
-        let sx = (w as f32 * 0.5 + (p[ha] * 0.5 - ca * 0.5) * scale)
+        let (a, b, d) = project(p);
+        let sx = (w as f64 * 0.5 + (a * 0.5 - ca * 0.5) * scale + pan_x)
             .round()
             .clamp(-1e7, 1e7) as i64;
-        let sy = (h as f32 * 0.5 - (p[va] * 0.5 - cb * 0.5) * scale)
+        let sy = (h as f64 * 0.5 - (b * 0.5 - cb * 0.5) * scale - pan_y)
             .round()
             .clamp(-1e7, 1e7) as i64;
-        let d = p[depth_axis];
+        let d = d as f32;
         let base = cloud.rgb.as_ref().map(|c| c[i]).unwrap_or([190, 190, 190]);
         let score = scores.get(i).copied().unwrap_or(f32::NEG_INFINITY);
         let color = if score >= cam.range_min {
@@ -143,6 +169,11 @@ mod tests {
             radius: 1,
             range_min: 0.05,
             range_max: 0.10,
+            yaw: 0.0,
+            pitch: 0.0,
+            zoom: 1.0,
+            pan_x: 0,
+            pan_y: 0,
         }
     }
 
@@ -173,5 +204,53 @@ mod tests {
         };
         let img = render(&cloud, &[1.0], &c);
         assert!(painted(&img) > 0, "radius overflow produced an empty splat");
+    }
+
+    #[test]
+    fn yaw_turns_the_projection_plane() {
+        let cloud = Cloud {
+            xyz: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            rgb: None,
+        };
+        let mut c = cam();
+        c.radius = 0;
+        assert_eq!(painted(&render(&cloud, &[1.0, 1.0], &c)), 2);
+        c.yaw = 90.0;
+        assert_eq!(
+            painted(&render(&cloud, &[1.0, 1.0], &c)),
+            1,
+            "yaw=90 should turn +x into the depth axis"
+        );
+    }
+
+    #[test]
+    fn zoom_scales_and_pan_shifts_pixels() {
+        let cloud = Cloud {
+            xyz: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            rgb: None,
+        };
+        let cols = |img: &[u8]| {
+            let (mut lo, mut hi) = (usize::MAX, 0usize);
+            for (x, px) in img.chunks_exact(3).enumerate() {
+                if px != [24, 24, 28] {
+                    lo = lo.min(x % 64);
+                    hi = hi.max(x % 64);
+                }
+            }
+            (lo, hi)
+        };
+        let mut c = cam();
+        c.radius = 0;
+        let (lo1, hi1) = cols(&render(&cloud, &[1.0, 1.0], &c));
+        c.zoom = 0.5;
+        let (lo2, hi2) = cols(&render(&cloud, &[1.0, 1.0], &c));
+        assert!(
+            hi2 - lo2 < hi1 - lo1,
+            "zoom=0.5 should narrow the projected span"
+        );
+        c.zoom = 1.0;
+        c.pan_x = 2;
+        let (lo3, hi3) = cols(&render(&cloud, &[1.0, 1.0], &c));
+        assert_eq!((lo3, hi3), (lo1 + 2, hi1 + 2), "pan-x should shift pixels");
     }
 }

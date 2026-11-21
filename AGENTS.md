@@ -92,15 +92,22 @@ argv -> parse_args -> run:
   repeated flags last-wins, missing value exits 2. stdout EPIPE is not an
   error (`osview-rs ... | head` exits 0).
 
+- Camera: rotations are applied to (horizontal, vertical, depth) coordinates
+  before autoscale and in f64 (f32 overflows near `f32::MAX`); `--zoom`
+  multiplies the fitted scale; `--pan-*` shifts final pixels. Defaults
+  (`0/0/1/0/0`) must reproduce the axis-aligned projection.
+
 ## Scope limits (intentional)
 
 - PLY: `ascii` and `binary_little_endian` only; vertex element must come first;
   no list properties, no big-endian.
 - NPY: little-endian floats only; no `fortran_order`, no structured dtypes;
   extra trailing payload bytes are accepted, short payloads are rejected.
-- Views are axis-aligned; no camera orbit/zoom, no CLIP text encoding, no
-  `.ssa/.conf` scenes. Feature width is whatever the producer emitted — never
-  hard-code 768; `feats.dim` is authoritative.
+- Views are axis-aligned orthographic; deterministic framing via
+  `--yaw/--pitch/--zoom/--pan-x/--pan-y`. No interactive orbit, no CLIP text
+  encoding, no `.ssa/.conf` scenes, no per-image feature directories. Feature
+  width is whatever the producer emitted — never hard-code 768; `feats.dim` is
+  authoritative.
 
 ## Reproduction semantics
 

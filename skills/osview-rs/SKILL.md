@@ -49,6 +49,9 @@ Build once with `cargo build --release` (binary honours `CARGO_TARGET_DIR`) or
 | `--view` | `xy` | `xy`, `xz` or `yz` |
 | `--width` / `--height` | 1600 / 1200 | 1..=8192 |
 | `--radius` | 1 | square half-width in pixels, 0..=64 |
+| `--yaw` / `--pitch` | 0 / 0 | rotate about vertical / horizontal screen axis, degrees |
+| `--zoom` | 1 | scale about the image centre, > 0 |
+| `--pan-x` / `--pan-y` | 0 / 0 | pixel shift, right/up positive |
 | `--range-min/max` | 0.05/0.10 | heat threshold and ramp top |
 | `--topk` | 500 | entries written to `--report` |
 | `--selftest` | — | built-in end-to-end check, then exit |
@@ -64,7 +67,8 @@ Exit codes: 2 for usage/validation errors, 1 for runtime failures, 0 success.
 Report JSON (schema: `docs/report.schema.json`):
 
 ```json
-{"points":40000,"dim":768,"view":"xy","range":[0.05,0.32],"above_min":123,
+{"points":40000,"dim":768,"view":"xy","camera":{"yaw":0,"pitch":0,"zoom":1,"pan":[0,0]},
+ "range":[0.05,0.32],"above_min":123,
  "matches":[{"i":17,"score":0.963700,"p":[0.900000,0.100000,0.200000]}]}
 ```
 
@@ -86,6 +90,8 @@ jq -e '.above_min > 0' top.json    # gate for scripts
 - Zero and non-finite rows become all zeros silently (they never match).
 - `score >= --range-min` gets the blue→yellow ramp; below it keeps the PLY
   vertex color (grey when the cloud has no full RGB triplet).
+- Camera: yaw/pitch rotate the point set before autoscale, zoom multiplies
+  the fitted scale, pan shifts pixels; the report records the camera.
 - An all-zero query is rejected. A `[D, 1]` column vector is not a valid query;
   use `[1, D]` or `[D]`.
 

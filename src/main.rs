@@ -19,6 +19,11 @@ struct Opts {
     radius: i32,
     range_min: f32,
     range_max: f32,
+    yaw: f32,
+    pitch: f32,
+    zoom: f32,
+    pan_x: i32,
+    pan_y: i32,
     topk: usize,
 }
 
@@ -35,6 +40,11 @@ USAGE: osview-rs --points cloud.ply --features feats.npy --query query.npy --out
   --view xy|xz|yz     projection plane (default xy)\n\
   --width <px>        default 1600\n\
   --height <px>       default 1200\n\
+  --yaw <deg>         rotate about the vertical screen axis, default 0\n\
+  --pitch <deg>       tilt about the horizontal screen axis, default 0\n\
+  --zoom <f>          zoom factor about the image centre, default 1\n\
+  --pan-x <px>        shift right (+) or left (-) in pixels, default 0\n\
+  --pan-y <px>        shift up (+) or down (-) in pixels, default 0\n\
   --radius <px>       splat half-width in px, 0..=64, default 1\n\
   --range-min <f>     heat ramp lower bound, default 0.05\n\
   --range-max <f>     heat ramp upper bound, default 0.10\n\
@@ -79,6 +89,11 @@ fn parse_args() -> Opts {
         radius: 1,
         range_min: 0.05,
         range_max: 0.10,
+        yaw: 0.0,
+        pitch: 0.0,
+        zoom: 1.0,
+        pan_x: 0,
+        pan_y: 0,
         topk: 500,
     };
     let mut it = std::env::args_os().skip(1);
@@ -102,6 +117,11 @@ fn parse_args() -> Opts {
             "--width" => o.width = num("--width", &val()),
             "--height" => o.height = num("--height", &val()),
             "--radius" => o.radius = num("--radius", &val()),
+            "--yaw" => o.yaw = num("--yaw", &val()),
+            "--pitch" => o.pitch = num("--pitch", &val()),
+            "--zoom" => o.zoom = num("--zoom", &val()),
+            "--pan-x" => o.pan_x = num("--pan-x", &val()),
+            "--pan-y" => o.pan_y = num("--pan-y", &val()),
             "--range-min" => o.range_min = num("--range-min", &val()),
             "--range-max" => o.range_max = num("--range-max", &val()),
             "--topk" => o.topk = num("--topk", &val()),
@@ -121,6 +141,12 @@ fn parse_args() -> Opts {
     }
     if !(0..=64).contains(&o.radius) {
         die("radius must be in 0..=64");
+    }
+    if !o.yaw.is_finite() || !o.pitch.is_finite() {
+        die("yaw/pitch must be finite degrees");
+    }
+    if !o.zoom.is_finite() || o.zoom <= 0.0 {
+        die("zoom must be finite and > 0");
     }
     let finite = o.range_min.is_finite() && o.range_max.is_finite();
     if !finite || o.range_max <= o.range_min {
@@ -218,6 +244,11 @@ fn run(o: &Opts) -> Result<(), String> {
         radius: o.radius,
         range_min: o.range_min,
         range_max: o.range_max,
+        yaw: o.yaw,
+        pitch: o.pitch,
+        zoom: o.zoom,
+        pan_x: o.pan_x,
+        pan_y: o.pan_y,
     };
     let rgb = render::render(&cloud, &scores, &cam);
     render::write_png(&o.out, o.width, o.height, &rgb).map_err(|e| format!("{}: {e}", o.out))?;
@@ -226,10 +257,15 @@ fn run(o: &Opts) -> Result<(), String> {
         let mut f = std::fs::File::create(path).map_err(|e| format!("{path}: {e}"))?;
         write!(
             f,
-            "{{\"points\":{},\"dim\":{},\"view\":\"{}\",\"range\":[{},{}],\"above_min\":{},\"matches\":[",
+            "{{\"points\":{},\"dim\":{},\"view\":\"{}\",\"camera\":{{\"yaw\":{},\"pitch\":{},\"zoom\":{},\"pan\":[{},{}]}},\"range\":[{},{}],\"above_min\":{},\"matches\":[",
             cloud.xyz.len(),
             dim,
             o.view.name(),
+            o.yaw,
+            o.pitch,
+            o.zoom,
+            o.pan_x,
+            o.pan_y,
             o.range_min,
             o.range_max,
             above
@@ -375,6 +411,11 @@ mod selftest {
             radius: 1,
             range_min: 0.05,
             range_max: 0.10,
+            yaw: 0.0,
+            pitch: 0.0,
+            zoom: 1.0,
+            pan_x: 0,
+            pan_y: 0,
         };
         let rgb = render::render(&cloud, &scores, &cam);
         let colored = rgb

@@ -9,6 +9,7 @@
     "points",
     "dim",
     "view",
+    "camera",
     "range",
     "above_min",
     "matches"
@@ -28,6 +29,35 @@
         "xz",
         "yz"
       ]
+    },
+    "camera": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "yaw",
+        "pitch",
+        "zoom",
+        "pan"
+      ],
+      "properties": {
+        "yaw": {
+          "type": "number"
+        },
+        "pitch": {
+          "type": "number"
+        },
+        "zoom": {
+          "type": "number"
+        },
+        "pan": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
     },
     "range": {
       "type": "array",

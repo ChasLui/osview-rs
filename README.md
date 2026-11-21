@@ -53,14 +53,19 @@ Inputs
   produced them (CLIP ViT-L/14 → 768).
 - `--query`: `.npy` `[1, D]` or `[D]` — a CLIP text embedding in the same space
   as the features (e.g. `[1, 768]` float32).
+- Camera (optional): `--yaw`/`--pitch` rotate the cloud about the vertical and
+  horizontal screen axes before projection; `--zoom` scales about the image
+  centre; `--pan-x`/`--pan-y` shift the result in pixels. Defaults
+  (`0/0/1/0/0`) reproduce the axis-aligned views.
 
 Outputs
 
 - PNG (`--out`): orthographic projection on `xy`, `xz` or `yz`; the depth
   buffer keeps the splat with the largest coordinate on the depth axis (camera
   on the +axis); `--radius` is a square half-width in pixels (0..=64).
-- JSON report (`--report`): `points`, `dim`, `view`, `range`, `above_min`,
-  and `matches` (`i`, `score`, `p` per point) for the top `--topk` points.
+- JSON report (`--report`): `points`, `dim`, `view`, `camera` (`yaw`, `pitch`,
+  `zoom`, `pan`), `range`, `above_min`, and `matches` (`i`, `score`, `p` per
+  point) for the top `--topk` points.
 - stdout: one-line JSON summary with the top 10.
 
 Query vector: save any CLIP text embedding in the same space as the features
@@ -90,10 +95,20 @@ osview-rs --points demo/sphere.ply --features demo/feats.npy \
 
 - Point splatting, not surface rasterization: thin geometry shows as dots.
   Increase `--radius` or resolution for denser coverage.
-- Views are axis-aligned; for arbitrary camera poses render with the engine
-  and reuse only the scoring/report part.
+- Views are axis-aligned orthographic; `--yaw`/`--pitch` rotate the cloud about
+  the screen axes for turntable-style framing, and the defaults keep the
+  axis-aligned output.
 - Scoring is single-query. For class argmax, loop over class vectors and keep
   the max per point, then reuse the same renderer.
+
+## Non-goals
+
+- Interactive window / live orbit: batch renderer by design; script
+  `--yaw`/`--pitch` frames for a turntable instead.
+- CLIP text encoding in the binary: pass a precomputed `.npy` embedding
+  (upstream `osview` also shells out to Python/TCP for this).
+- `.ssa/.ssb/.conf` OpenSurfels scenes and `-image_directory` per-image
+  features: those need scene cameras and surfels; export a PLY + `.npy` pair.
 
 ## Development
 
