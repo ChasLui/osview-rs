@@ -1,0 +1,5 @@
+/target
+demo/*.ply
+demo/*.npy
+demo/*.png
+demo/*.json
