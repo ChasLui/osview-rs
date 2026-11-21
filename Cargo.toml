@@ -11,7 +11,7 @@ categories = ["command-line-utilities", "graphics"]
 readme = "README.md"
 
 [dependencies]
-png = "0.17"
+png = "0.18"
 
 [lints.rust]
 unsafe_code = "forbid"
