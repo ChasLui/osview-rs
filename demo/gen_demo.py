@@ -15,7 +15,7 @@ theta = np.pi * (np.arange(n) + 0.5) / n
 phi = 2 * np.pi * (np.arange(n) + 0.5) / n
 T, P = np.meshgrid(theta, phi, indexing="ij")
 pts = np.stack(
-    [np.sin(T) * np.cos(P), np.sin(T) * np.sin(P), np.cos(T)], 1
+    [np.sin(T) * np.cos(P), np.sin(T) * np.sin(P), np.cos(T)], axis=-1
 ).astype(np.float32).reshape(-1, 3)
 
 rgb = np.full((pts.shape[0], 3), 170, np.uint8)

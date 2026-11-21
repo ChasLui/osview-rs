@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `osview_rs` library: `Dataset` load/validate/score/top-k, json report and
+  stdout summary writers shared by every frontend.
+- `osview-gui` (feature `gui`, minifb): live orbit/pan/zoom, view and ramp
+  keys, `--frames` smoke mode.
+- C SDK: `include/osview.h`, `libosview_rs` (rlib/cdylib/staticlib) with an
+  opaque handle, camera/matches structs and a complete `examples/c/smoke.c`.
+- CI: C-SDK link check and a macOS GUI job.
+
+### Changed
+
+- The CLI is now a thin frontend over the library; its PNG, report, stdout and
+  exit codes are unchanged.
+
+### Fixed
+
+- `demo/gen_demo.py` stacked coordinates on the wrong axis, collapsing the
+  sphere into a line; the fixed script and `docs/render.png` are regenerated.
+
 ## [0.2.0] - 2026-11-21
 
 ### Added

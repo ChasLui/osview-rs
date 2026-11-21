@@ -5,6 +5,7 @@
 use std::fs;
 use std::io;
 
+#[derive(Debug)]
 pub struct Matrix {
     pub rows: usize,
     pub dim: usize,

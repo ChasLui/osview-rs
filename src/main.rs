@@ -1,9 +1,4 @@
-mod npy;
-mod ply;
-mod render;
-
-use render::{Camera, View};
-use std::fmt::Write as _;
+use osview_rs::{render, Camera, Dataset, View};
 use std::io::Write;
 use std::process::ExitCode;
 
@@ -190,52 +185,7 @@ fn main() -> ExitCode {
 }
 
 fn run(o: &Opts) -> Result<(), String> {
-    let cloud = ply::read(&o.points).map_err(|e| format!("{}: {e}", o.points))?;
-    let feats = npy::read(&o.features).map_err(|e| format!("{}: {e}", o.features))?;
-    let q = npy::read(&o.query).map_err(|e| format!("{}: {e}", o.query))?;
-
-    if feats.rows != cloud.xyz.len() {
-        return Err(format!(
-            "feature rows ({}) != points ({}) — osview pairs the i-th feature row with the i-th vertex",
-            feats.rows,
-            cloud.xyz.len()
-        ));
-    }
-    if q.rows != 1 {
-        return Err(format!(
-            "query must be a single vector, got {} rows — split class features and score per class",
-            q.rows
-        ));
-    }
-    if q.dim != feats.dim {
-        return Err(format!(
-            "query dim ({}) != feature dim ({}) — same CLIP text tower must have produced both",
-            q.dim, feats.dim
-        ));
-    }
-
-    let dim = feats.dim;
-    let query = &q.data[..dim];
-    if query.iter().all(|v| v.abs() < 1e-9) {
-        return Err(
-            "query vector is all zeros — refusing to emit an all-zero/one-color image; \
-             pass a real text embedding"
-                .to_string(),
-        );
-    }
-    let mut scores = Vec::with_capacity(feats.rows);
-    for row in feats.data.chunks_exact(dim) {
-        let mut s = 0.0f32;
-        for (a, b) in row.iter().zip(query.iter()) {
-            s += a * b;
-        }
-        scores.push(s);
-    }
-
-    let mut order: Vec<usize> = (0..scores.len()).collect();
-    order.sort_by(|&a, &b| scores[b].total_cmp(&scores[a]));
-    let topk = o.topk.min(order.len());
-    let above = scores.iter().filter(|s| **s >= o.range_min).count();
+    let ds = Dataset::load(&o.points, &o.features, &o.query)?;
 
     let cam = Camera {
         view: o.view,
@@ -250,90 +200,21 @@ fn run(o: &Opts) -> Result<(), String> {
         pan_x: o.pan_x,
         pan_y: o.pan_y,
     };
-    let rgb = render::render(&cloud, &scores, &cam);
+    let rgb = render::render(&ds.cloud, &ds.scores, &cam);
     render::write_png(&o.out, o.width, o.height, &rgb).map_err(|e| format!("{}: {e}", o.out))?;
 
     if let Some(path) = &o.report {
-        let mut f = std::fs::File::create(path).map_err(|e| format!("{path}: {e}"))?;
-        write!(
-            f,
-            "{{\"points\":{},\"dim\":{},\"view\":\"{}\",\"camera\":{{\"yaw\":{},\"pitch\":{},\"zoom\":{},\"pan\":[{},{}]}},\"range\":[{},{}],\"above_min\":{},\"matches\":[",
-            cloud.xyz.len(),
-            dim,
-            o.view.name(),
-            o.yaw,
-            o.pitch,
-            o.zoom,
-            o.pan_x,
-            o.pan_y,
-            o.range_min,
-            o.range_max,
-            above
-        )
-        .map_err(|e| e.to_string())?;
-        for (k, &i) in order.iter().take(topk).enumerate() {
-            let p = cloud.xyz[i];
-            if k > 0 {
-                write!(f, ",").map_err(|e| e.to_string())?;
-            }
-            write!(
-                f,
-                "{{\"i\":{},\"score\":{:.6},\"p\":[{:.6},{:.6},{:.6}]}}",
-                i, scores[i], p[0], p[1], p[2]
-            )
-            .map_err(|e| e.to_string())?;
-        }
-        writeln!(f, "]}}").map_err(|e| e.to_string())?;
+        osview_rs::write_report(path, &ds, &cam, o.topk).map_err(|e| format!("{path}: {e}"))?;
     }
 
-    let mut s = String::new();
-    write!(
-        s,
-        "{{\"points\":{},\"dim\":{},\"view\":\"{}\",\"image\":\"{}\",\"above_min\":{},\"max\":{:.6},\"min\":{:.6},\"top\":[",
-        cloud.xyz.len(),
-        dim,
-        o.view.name(),
-        json_str(&o.out),
-        above,
-        scores[order[0]],
-        scores[order[order.len() - 1]]
-    )
-    .map_err(|e| e.to_string())?;
-    for (k, &i) in order.iter().take(10).enumerate() {
-        if k > 0 {
-            s.push(',');
-        }
-        let p = cloud.xyz[i];
-        write!(
-            s,
-            "{{\"i\":{},\"score\":{:.4},\"p\":[{:.4},{:.4},{:.4}]}}",
-            i, scores[i], p[0], p[1], p[2]
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    s.push_str("]}");
+    let s = osview_rs::summary_json(&ds, &o.out, &cam);
     // Ignore EPIPE so `osview-rs ... | head` exits 0.
     let _ = writeln!(std::io::stdout().lock(), "{s}");
     Ok(())
 }
 
-fn json_str(s: &str) -> String {
-    let mut o = String::with_capacity(s.len() + 2);
-    for c in s.chars() {
-        match c {
-            '"' => o.push_str("\\\""),
-            '\\' => o.push_str("\\\\"),
-            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
-            c => o.push(c),
-        }
-    }
-    o
-}
-
 mod selftest {
-    use crate::npy;
-    use crate::ply::{self, Cloud};
-    use crate::render::{self, Camera, View};
+    use osview_rs::{npy, ply, render, Camera, Cloud, View};
 
     pub fn run() {
         // Synthetic sphere grid with a deliberate left/right feature split.

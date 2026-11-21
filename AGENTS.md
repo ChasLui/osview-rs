@@ -1,12 +1,14 @@
 # AGENTS.md
 
-`osview-rs` is a headless replacement for OpenScene's `osview`: it reads a PLY
-point cloud plus per-point CLIP features (NPY), scores one query vector, and
-writes a PNG render and a JSON top-k report. Single Cargo binary, edition 2021,
-one dependency (`png`), no async/runtime/GPU. Style contract: no clap, serde,
-anyhow, rayon, ndarray — errors are `io::Result` / `Result<_, String>`, JSON is
-hand-written `write!`, tests hand-build NPY bytes. Adding a dependency is a
-design decision, not a refactor.
+`osview-rs` replaces OpenScene's `osview` core: it reads a PLY point cloud plus
+per-point CLIP features (NPY), scores one query vector, and renders/top-k's the
+result. One crate, one renderer, four surfaces: CLI (`osview-rs`), GUI
+(`osview-gui`, feature `gui`), C SDK (`libosview_rs` + `include/osview.h`) and
+the Rust library (`osview_rs`). Edition 2021; dependency budget: `png`, plus
+optional `minifb` for the GUI. No async/runtime/GPU. Style contract: no clap,
+serde, anyhow, rayon, ndarray — errors are `io::Result` / `Result<_, String>`,
+JSON is hand-written `write!`, tests hand-build NPY bytes. Adding a dependency
+is a design decision, not a refactor.
 
 ## Commands (CI parity: `.github/workflows/ci.yml`)
 
@@ -14,13 +16,18 @@ design decision, not a refactor.
 cargo build --release            # binary honours CARGO_TARGET_DIR
 cargo fmt --check
 cargo clippy --release --locked --all-targets -- -D warnings
-cargo test --release             # 17 unit tests: npy, ply and render
+cargo test --release             # 23 unit tests: npy, ply, render, Dataset, ffi
 cargo run --release -- --selftest   # ranking + render coverage + ascii PLY
+cargo build --release --features gui --bin osview-gui
+cargo clippy --release --locked --features gui --all-targets -- -D warnings
+cc -I include examples/c/smoke.c -L target/release -losview_rs -o /tmp/osview-smoke
 ```
 
 CI (`.github/workflows/ci.yml`) runs these plus an MSRV build
-(`cargo +1.78 build --release --locked`), a docs job (`yamllint`,
-`markdownlint-cli2`, `actionlint`) and, on PRs, `zizmor` over the workflows.
+(`cargo +1.78 build --release --locked`), a C-SDK link check, a GUI job on
+macOS (`clippy --features gui --all-targets`), a docs job
+(`yamllint`, `markdownlint-cli2`, `actionlint`) and, on PRs,
+`zizmor` over the workflows.
 Every action is pinned by full commit SHA with a `# vX.Y.Z` comment; Dependabot
 (grouped, 7-day cooldown) bumps them. `release.yml` creates the GitHub Release
 itself and builds `x86_64-unknown-linux-musl` + `aarch64-apple-darwin` with
@@ -35,15 +42,23 @@ cargo run --release -- --points demo/sphere.ply --features demo/feats.npy \
   --range-min 0.05 --range-max 0.32 --report demo/top.json
 ```
 
-Expected: top score ≈ 0.9637, the noise floor ≈ 0.072, `above_min` > 0, the
+Expected: top score ≈ 0.9699, the noise floor ≈ 0.0652, `above_min` > 0, the
 +x hemisphere yellow. `docs/render.png` is the committed screenshot; the demo
 run does not update it.
 
 ## Layout and data flow
 
-- `src/main.rs` — `Opts`, `parse_args` (manual `--flag value` parser), `run()`
-  pipeline, JSON report/stdout writers (`json_str`), `mod selftest`. Arg errors
-  exit 2 (`die`/`usage`); runtime errors exit 1; `-h/--help` exits 0.
+- `src/lib.rs` — `Dataset` (load/validate/score/top-k), `write_report`,
+  `summary_json`; the shared contract every surface calls.
+- `src/main.rs` — CLI only: `Opts`, `parse_args` (manual `--flag value`),
+  `run()` wiring, `mod selftest`. Arg errors exit 2 (`die`/`usage`); runtime
+  errors exit 1; `-h/--help` exits 0.
+- `src/gui/main.rs` — `osview-gui` (feature `gui`, minifb): orbit/pan/zoom,
+  view and ramp keys over the same renderer; `--frames N` renders N frames,
+  prints the painted count and exits for smoke tests.
+- `src/ffi.rs` — C ABI; the only module allowed `unsafe` (`allow` inside the
+  module, crate lint is `deny`). `include/osview.h` and
+  `examples/c/smoke.c` document/exercise it.
 - `src/npy.rs` — minimal NPY parser (`<f2`/`<f4`/`<f8`, C order, f64 downcast
   to f32), L2 row normalization. Header is parsed by string scanning, not a
   real NPY parser.
@@ -52,12 +67,13 @@ run does not update it.
 - `src/render.rs` — orthographic splat renderer with depth buffer and heat ramp.
 
 ```text
-argv -> parse_args -> run:
-  ply::read -> Cloud{xyz, rgb}
-  npy::read -> Matrix{rows, dim, data} (rows normalized)
-  validate pairing/dims -> dot-product scores -> rank desc (total_cmp), topk
-  render::render -> RGB8 buffer -> write_png
-  --report JSON + one stdout JSON line
+CLI argv -> parse_args -> run \
+GUI argv -> Dataset::load        > Dataset{cloud, features, query, scores}
+C SDK    -> handle stages       /
+  Dataset::load: ply::read -> Cloud; npy::read -> Matrix (rows normalized)
+  Dataset::from_parts: row/dim checks, all-zero query refusal, dot scores
+  render::render -> RGB8 buffer -> write_png (CLI) / u32 frame (GUI) /
+  caller buffer (C SDK); CLI adds --report JSON + one stdout JSON line
 ```
 
 ## Invariants (do not break)
@@ -68,8 +84,8 @@ argv -> parse_args -> run:
   dot product is cosine. Rows whose norm is non-finite or `<= 1e-12` become all
   zeros silently — NaN/±Inf feature rows score 0, they do not error. PLY
   coordinates, by contrast, error on non-finite values.
-- Zero-query refusal lives in `main`, not the loader (a NaN/Inf query is zeroed
-  by the loader and hits the same error).
+- Zero-query refusal lives in `Dataset::from_parts`, so CLI, GUI and C SDK all
+  refuse it (a NaN/Inf query is zeroed by the loader and hits the same error).
 - Color rule: heat ramp iff `score >= range_min`; `t` saturates at `range_max`;
   `above_min` counts `>=`. Below the threshold the PLY vertex color is kept —
   only when all of `red/green/blue` exist, otherwise gray `[190,190,190]`
@@ -96,6 +112,13 @@ argv -> parse_args -> run:
   before autoscale and in f64 (f32 overflows near `f32::MAX`); `--zoom`
   multiplies the fitted scale; `--pan-*` shifts final pixels. Defaults
   (`0/0/1/0/0`) must reproduce the axis-aligned projection.
+- Surface parity: CLI, GUI and C SDK share `Dataset` + `render`; do not fork
+  scoring, validation or the color rule. CLI output must stay byte-identical
+  when the library is refactored (demo PNG + report compared).
+- C ABI: status 0 ok, 1 null/invalid argument, 2 load/state error; every
+  failure sets `osview_last_error` (empty on success). Paths are NUL-terminated
+  UTF-8; output buffers are caller-owned and length-checked. FFI never panics
+  across the boundary and never invents defaults for a missing stage.
 
 ## Scope limits (intentional)
 
@@ -103,11 +126,11 @@ argv -> parse_args -> run:
   no list properties, no big-endian.
 - NPY: little-endian floats only; no `fortran_order`, no structured dtypes;
   extra trailing payload bytes are accepted, short payloads are rejected.
-- Views are axis-aligned orthographic; deterministic framing via
-  `--yaw/--pitch/--zoom/--pan-x/--pan-y`. No interactive orbit, no CLIP text
-  encoding, no `.ssa/.conf` scenes, no per-image feature directories. Feature
-  width is whatever the producer emitted — never hard-code 768; `feats.dim` is
-  authoritative.
+- CLI views are axis-aligned orthographic with deterministic framing via
+  `--yaw/--pitch/--zoom/--pan-x/--pan-y`; the GUI adds live orbit on the same
+  camera. No GPU rasterization, no CLIP text encoding, no `.ssa/.conf` scenes,
+  no per-image feature directories. Feature width is whatever the producer
+  emitted — never hard-code 768; `feats.dim` is authoritative.
 
 ## Reproduction semantics
 
@@ -129,15 +152,21 @@ written before the report (a report failure leaves a valid PNG and exit 1);
 `--out` is not atomic and must not alias an input or `--report`; `--out`
 extension unchecked; tests/selftest use fixed temp filenames and can race
 across concurrent runs; `usage()` version comes from `CARGO_PKG_VERSION`.
+GUI needs a windowing backend at runtime (build/`--frames` smoke still opens a
+window); the C SDK cannot parse files itself beyond the paths it is handed, and
+its camera validation mirrors the CLI (w/h 1..=8192, radius 0..=64, finite
+yaw/pitch/zoom>0, range_max>range_min).
 
 ## Verification
 
 Run `scripts/verify.sh` before claiming a change is done: fmt + clippy
-(`--all-targets`) + tests + `--selftest`, plus a demo render gated with `jq`
-when the fixtures exist (they are git-ignored). For CLI/report changes also
-validate the report against `docs/report.schema.json`. For parser changes add a
-hand-built byte fixture following the `npy_f32` / `npy_f16` helpers; do not add
-dev-dependencies. Never commit generated demo data.
+(`--all-targets`) + tests + `--selftest`, a GUI build, a C SDK compile/link,
+and — when the git-ignored demo fixtures exist — a demo render gated with `jq`
+plus the C smoke test. For CLI/report changes also validate the report against
+`docs/report.schema.json`. For parser changes add a hand-built byte fixture
+following the `npy_f32` / `npy_f16` helpers; do not add dev-dependencies. Never
+commit generated demo data. GUI changes: at least `--frames 2` locally, and
+confirm the window renders non-background pixels.
 
 The runtime-facing usage guide for agents is `skills/osview-rs/SKILL.md`
 (symlinked at `.claude/skills/osview-rs`); keep its flag table and error table

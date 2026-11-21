@@ -18,7 +18,7 @@ PNG render plus a JSON top-k report.
 - Reproduce osview scoring without a display, GLUT or GPU.
 
 Not for: CLIP text encoding (produce the `.npy` query with a CLIP encoder
-first), interactive viewing, `.ssa/.conf` scenes.
+first), `.ssa/.conf` scenes.
 
 ## Quick start
 
@@ -61,6 +61,19 @@ Build once with `cargo build --release` (binary honours `CARGO_TARGET_DIR`) or
 - `--range-min/--range-max` need `max > min`, both finite.
 
 Exit codes: 2 for usage/validation errors, 1 for runtime failures, 0 success.
+
+## Other surfaces
+
+The same renderer is available without re-implementing scoring:
+
+- GUI: `cargo build --release --features gui`, then `osview-gui --points ...
+  --features ... --query ...`. Drag orbits, right/shift-drag pans, wheel zooms,
+  `1`/`2`/`3` switch views, `[`/`]` move the ramp top, `r` resets, `q` quits.
+  `--frames N` renders N frames, prints the painted-pixel count and exits.
+- C SDK: build once, then link `-losview_rs` with `include/osview.h`; open a
+  handle, load the three inputs, `osview_score`, then `osview_render` into your
+  own RGB buffer or `osview_top_k`. See `examples/c/smoke.c`.
+- Rust: `osview_rs::{Dataset, Camera, View, render}`.
 
 ## Outputs
 
@@ -117,5 +130,6 @@ jq -e '.above_min > 0' top.json    # gate for scripts
 scripts/verify.sh
 ```
 
-Runs fmt, clippy (all targets), tests, `--selftest`, and (when demo fixtures
-exist) a demo render with the report gated by `jq`.
+Runs fmt, clippy (all targets), tests, `--selftest`, a GUI build, a C-SDK
+compile/link, and (when demo fixtures exist) a demo render with the report
+gated by `jq` plus the C smoke test.

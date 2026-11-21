@@ -5,9 +5,10 @@
 
 ![demo render](https://raw.githubusercontent.com/ChasLui/osview-rs/main/docs/render.png)
 
-Headless rewrite of OpenScene's `osview` for machine use: reads a PLY point
-cloud plus per-point CLIP features, scores one query vector, and writes a PNG
-and a JSON top-k report. No display, no GLUT, no GPU.
+OpenScene's `osview` core with one renderer shared by a CLI, an optional
+interactive GUI, a C SDK and a Rust library: reads a PLY point cloud plus
+per-point CLIP features, scores one query vector, and renders the result. No
+GLUT, no GPU, no CLIP server.
 
 Reproduced semantics (from `osview.cpp` in the OpenScene demo):
 
@@ -20,22 +21,40 @@ Reproduced semantics (from `osview.cpp` in the OpenScene demo):
   blue→yellow ramp between `--range-min` and `--range-max` (osview defaults
   0.05 / 0.10).
 
-Not implemented: the interactive window (no live orbit — script
-`--yaw`/`--pitch` instead), CLIP text encoding (pass a `.npy` text embedding
-instead), `.ssa/.conf` scenes, per-image feature files (`-image_directory`).
+Not implemented: CLIP text encoding (pass a `.npy` text embedding instead),
+`.ssa/.conf` scenes, per-image feature files (`-image_directory`).
 
 ## Build
 
 ```bash
-cargo build --release
-# binary: target/release/osview-rs (honours CARGO_TARGET_DIR)
+cargo build --release                  # CLI: target/release/osview-rs
+cargo build --release --features gui   # + GUI: target/release/osview-gui
+cargo install --path .                 # CLI into ~/.cargo/bin
 ```
 
-Or install the binary into `~/.cargo/bin`:
+`cargo build` always produces `libosview_rs.a` / `.dylib` / `.so` too (honours
+`CARGO_TARGET_DIR`).
+
+## Surfaces
+
+| surface | entry point | notes |
+| --- | --- | --- |
+| CLI | `osview-rs` | batch render + JSON report; the flags below |
+| GUI | `osview-gui` (`--features gui`) | live orbit/pan/zoom on the same CPU renderer |
+| C SDK | `include/osview.h` + `libosview_rs` | opaque handle, camera/matches structs; `examples/c/smoke.c` |
+| Rust library | `osview_rs::{Dataset, Camera, render}` | validation/scoring/report without CLI plumbing |
+
+GUI controls: drag to orbit, right/shift-drag to pan, wheel to zoom, `1`/`2`/`3`
+for the view, `[`/`]` for the ramp top, `r` to reset, `q`/Esc to quit. Smoked
+with `--frames N` (renders N frames, prints the painted-pixel count, exits).
 
 ```bash
-cargo install --path .
+osview-gui --points region0.ply --features RPmz2.npy --query chair.npy
 ```
+
+C SDK: create a handle, load the three inputs, score, then render into your own
+RGB buffer or pull top-k matches. See `include/osview.h` for the ABI and
+`examples/c/smoke.c` for a complete loader/render/query program.
 
 ## Usage
 
@@ -74,8 +93,9 @@ as `.npy` — OpenScene's `demo/clip_server.py` does this upstream.
 ## Tests
 
 ```bash
-cargo test --release     # NPY parse/normalize/truncation, PLY shapes/colors/counts
+cargo test --release     # NPY, PLY, renderer and Dataset tests
 cargo run --release -- --selftest   # ranking, render coverage, ascii PLY
+cargo clippy --release --locked --features gui --all-targets -- -D warnings
 ```
 
 ## Demo
@@ -95,16 +115,16 @@ osview-rs --points demo/sphere.ply --features demo/feats.npy \
 
 - Point splatting, not surface rasterization: thin geometry shows as dots.
   Increase `--radius` or resolution for denser coverage.
-- Views are axis-aligned orthographic; `--yaw`/`--pitch` rotate the cloud about
-  the screen axes for turntable-style framing, and the defaults keep the
-  axis-aligned output.
+- CLI views are axis-aligned orthographic; `--yaw`/`--pitch` rotate the cloud
+  about the screen axes for turntable-style framing, and the defaults keep the
+  axis-aligned output. The GUI drives the same camera interactively.
 - Scoring is single-query. For class argmax, loop over class vectors and keep
   the max per point, then reuse the same renderer.
 
 ## Non-goals
 
-- Interactive window / live orbit: batch renderer by design; script
-  `--yaw`/`--pitch` frames for a turntable instead.
+- GPU rasterization: the GUI presents the same CPU splats as the CLI, keeping
+  pixels identical across surfaces.
 - CLIP text encoding in the binary: pass a precomputed `.npy` embedding
   (upstream `osview` also shells out to Python/TCP for this).
 - `.ssa/.ssb/.conf` OpenSurfels scenes and `-image_directory` per-image
@@ -113,7 +133,8 @@ osview-rs --points demo/sphere.ply --features demo/feats.npy \
 ## Development
 
 `scripts/verify.sh` runs CI parity (fmt, clippy on all targets, tests,
-`--selftest`) plus a demo render gated with `jq`. See
+`--selftest`), builds the GUI, compiles/links the C SDK example, and runs a demo
+render plus the C smoke test when the fixtures exist. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for PR expectations.
 
 ## Agent integration

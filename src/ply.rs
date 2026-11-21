@@ -3,6 +3,7 @@
 use std::fs;
 use std::io;
 
+#[derive(Debug)]
 pub struct Cloud {
     pub xyz: Vec<[f32; 3]>,
     pub rgb: Option<Vec<[u8; 3]>>,
