@@ -224,6 +224,35 @@ mod tests {
     }
 
     #[test]
+    fn rotation_works_for_every_view() {
+        let cloud = Cloud {
+            xyz: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            rgb: None,
+        };
+        for view in [View::XY, View::XZ, View::YZ] {
+            let mut c = cam();
+            c.view = view;
+            c.yaw = 30.0;
+            c.pitch = 15.0;
+            c.zoom = 1.1;
+            c.pan_x = 4;
+            c.pan_y = -3;
+            let img = render(&cloud, &[1.0; 4], &c);
+            assert_eq!(img.len(), 64 * 64 * 3);
+            assert!(
+                painted(&img) > 0,
+                "{} lost every point under rotation",
+                view.name()
+            );
+        }
+    }
+
+    #[test]
     fn zoom_scales_and_pan_shifts_pixels() {
         let cloud = Cloud {
             xyz: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
