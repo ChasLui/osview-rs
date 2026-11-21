@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-21
+
 ### Added
 
 - `--yaw`, `--pitch`, `--zoom`, `--pan-x`, `--pan-y` for deterministic camera
   framing; the report records `camera`.
+
+### Fixed
+
+- Depth buffer keeps f64 rotated depths, so occlusion stays correct beyond
+  `f32::MAX`.
 
 ## [0.1.0] - 2026-11-21
 
@@ -29,5 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selftest, docs lint, zizmor on PRs) and a tag-driven release workflow for
   Linux x86_64 (static musl) and macOS arm64 with sha256 checksums.
 
-[Unreleased]: https://github.com/ChasLui/osview-rs/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ChasLui/osview-rs/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ChasLui/osview-rs/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ChasLui/osview-rs/releases/tag/v0.1.0
