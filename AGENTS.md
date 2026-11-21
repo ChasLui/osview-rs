@@ -118,7 +118,11 @@ reproduction, not pixel-exact. Fix only genuine defects.
 
 ## Sharp edges (document, don't silently fix)
 
-Full-file reads capped at 8 GiB (non-regular inputs rejected); depth buffer
+Framing/rotation math is f64: default framing can differ from v0.1.0 by a
+pixel or more when the bbox midpoint is not f32-representable; rotating
+clouds whose coordinates are much larger than 1e7 amplifies f32 ulp
+residual (recentre them first). Full-file reads capped at 8 GiB
+(non-regular inputs rejected); depth buffer
 is f64 (8 B/px, 537 MB at 8192²); single-threaded
 O(N·D) scoring; square splats, `--radius` capped at 64; no alpha; PNG is
 written before the report (a report failure leaves a valid PNG and exit 1);
