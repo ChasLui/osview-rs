@@ -2,9 +2,19 @@
 name = "osview-rs"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.78"
+description = "Headless PLY + CLIP-feature point-cloud viewer: cosine scoring, PNG render, JSON top-k report"
+repository = "https://github.com/ChasLui/osview-rs"
+license = "MIT"
+keywords = ["point-cloud", "ply", "npy", "clip", "visualization"]
+categories = ["command-line-utilities", "graphics"]
+readme = "README.md"
 
 [dependencies]
 png = "0.17"
+
+[lints.rust]
+unsafe_code = "forbid"
 
 [profile.release]
 opt-level = 3

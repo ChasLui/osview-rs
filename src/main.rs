@@ -3,6 +3,7 @@ mod ply;
 mod render;
 
 use render::{Camera, View};
+use std::fmt::Write as _;
 use std::io::Write;
 use std::process::ExitCode;
 
@@ -21,9 +22,9 @@ struct Opts {
     topk: usize,
 }
 
-fn usage() -> ! {
+fn usage(code: i32) -> ! {
     eprintln!(
-        "osview-rs 0.1.0 - headless point-cloud feature viewer\n\
+        "osview-rs {} - headless point-cloud feature viewer\n\
 \n\
 USAGE: osview-rs --points cloud.ply --features feats.npy --query query.npy --out render.png [options]\n\
 \n\
@@ -34,22 +35,34 @@ USAGE: osview-rs --points cloud.ply --features feats.npy --query query.npy --out
   --view xy|xz|yz     projection plane (default xy)\n\
   --width <px>        default 1600\n\
   --height <px>       default 1200\n\
-  --radius <px>       splat radius, default 1\n\
+  --radius <px>       splat half-width in px, 0..=64, default 1\n\
   --range-min <f>     heat ramp lower bound, default 0.05\n\
   --range-max <f>     heat ramp upper bound, default 0.10\n\
   --topk <n>          matches written to --report, default 500\n\
-  --report <json>     write top-k matches (index, score, xyz)\n\
+  --report <json>     write top-k matches (i, score, p) for the top --topk points\n\
   --selftest          run the built-in synthetic test and exit\n\
-  -h, --help          show this text"
+  -h, --help          show this text",
+        env!("CARGO_PKG_VERSION")
     );
+    std::process::exit(code);
+}
+
+fn die(msg: &str) -> ! {
+    eprintln!("osview-rs: {msg}");
     std::process::exit(2);
 }
 
-fn parse_view(s: &str) -> View {
+fn num<T: std::str::FromStr>(flag: &str, s: &str) -> T {
+    s.parse()
+        .unwrap_or_else(|_| die(&format!("bad value for {flag}: {s}")))
+}
+
+fn parse_view(s: &str) -> Option<View> {
     match s {
-        "xz" => View::XZ,
-        "yz" => View::YZ,
-        _ => View::XY,
+        "xy" => Some(View::XY),
+        "xz" => Some(View::XZ),
+        "yz" => Some(View::YZ),
+        _ => None,
     }
 }
 
@@ -68,37 +81,75 @@ fn parse_args() -> Opts {
         range_max: 0.10,
         topk: 500,
     };
-    let mut it = std::env::args().skip(1);
+    let mut it = std::env::args_os().skip(1);
+    let text = |a: std::ffi::OsString| {
+        a.into_string()
+            .unwrap_or_else(|_| die("argument is not valid UTF-8"))
+    };
     while let Some(a) = it.next() {
-        let mut val = || it.next().unwrap_or_else(|| usage());
+        let a = text(a);
+        let mut val = || it.next().map(text).unwrap_or_else(|| usage(2));
         match a.as_str() {
             "--points" => o.points = val(),
             "--features" => o.features = val(),
             "--query" => o.query = val(),
             "--out" => o.out = val(),
             "--report" => o.report = Some(val()),
-            "--view" => o.view = parse_view(&val()),
-            "--width" => o.width = val().parse().unwrap_or(1600),
-            "--height" => o.height = val().parse().unwrap_or(1200),
-            "--radius" => o.radius = val().parse().unwrap_or(1),
-            "--range-min" => o.range_min = val().parse().unwrap_or(0.05),
-            "--range-max" => o.range_max = val().parse().unwrap_or(0.10),
-            "--topk" => o.topk = val().parse().unwrap_or(500),
+            "--view" => {
+                o.view = parse_view(&val())
+                    .unwrap_or_else(|| die("bad value for --view (need xy, xz or yz)"))
+            }
+            "--width" => o.width = num("--width", &val()),
+            "--height" => o.height = num("--height", &val()),
+            "--radius" => o.radius = num("--radius", &val()),
+            "--range-min" => o.range_min = num("--range-min", &val()),
+            "--range-max" => o.range_max = num("--range-max", &val()),
+            "--topk" => o.topk = num("--topk", &val()),
             "--selftest" => {
                 selftest::run();
                 std::process::exit(0);
             }
-            "-h" | "--help" => usage(),
+            "-h" | "--help" => usage(0),
             _ => {
                 eprintln!("unknown argument: {a}");
-                usage();
+                usage(2);
             }
         }
     }
+    if !(1..=8192).contains(&o.width) || !(1..=8192).contains(&o.height) {
+        die("width/height must be in 1..=8192");
+    }
+    if !(0..=64).contains(&o.radius) {
+        die("radius must be in 0..=64");
+    }
+    let finite = o.range_min.is_finite() && o.range_max.is_finite();
+    if !finite || o.range_max <= o.range_min {
+        die("range-max must be greater than range-min (both finite)");
+    }
     if o.points.is_empty() || o.features.is_empty() || o.query.is_empty() || o.out.is_empty() {
-        usage();
+        usage(2);
+    }
+    for p in [&o.points, &o.features, &o.query] {
+        if same_file(p, &o.out) {
+            die("--out must not overwrite an input file");
+        }
+    }
+    if let Some(r) = &o.report {
+        if same_file(r, &o.out) {
+            die("--out and --report must differ");
+        }
     }
     o
+}
+
+fn same_file(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
 }
 
 fn main() -> ExitCode {
@@ -169,8 +220,7 @@ fn run(o: &Opts) -> Result<(), String> {
         range_max: o.range_max,
     };
     let rgb = render::render(&cloud, &scores, &cam);
-    render::write_png(&o.out, o.width, o.height, &rgb)
-        .map_err(|e| format!("{}: {e}", o.out))?;
+    render::write_png(&o.out, o.width, o.height, &rgb).map_err(|e| format!("{}: {e}", o.out))?;
 
     if let Some(path) = &o.report {
         let mut f = std::fs::File::create(path).map_err(|e| format!("{path}: {e}"))?;
@@ -200,14 +250,14 @@ fn run(o: &Opts) -> Result<(), String> {
         writeln!(f, "]}}").map_err(|e| e.to_string())?;
     }
 
-    let mut out = std::io::stdout().lock();
+    let mut s = String::new();
     write!(
-        out,
+        s,
         "{{\"points\":{},\"dim\":{},\"view\":\"{}\",\"image\":\"{}\",\"above_min\":{},\"max\":{:.6},\"min\":{:.6},\"top\":[",
         cloud.xyz.len(),
         dim,
         o.view.name(),
-        o.out,
+        json_str(&o.out),
         above,
         scores[order[0]],
         scores[order[order.len() - 1]]
@@ -215,18 +265,33 @@ fn run(o: &Opts) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     for (k, &i) in order.iter().take(10).enumerate() {
         if k > 0 {
-            write!(out, ",").map_err(|e| e.to_string())?;
+            s.push(',');
         }
         let p = cloud.xyz[i];
         write!(
-            out,
+            s,
             "{{\"i\":{},\"score\":{:.4},\"p\":[{:.4},{:.4},{:.4}]}}",
             i, scores[i], p[0], p[1], p[2]
         )
         .map_err(|e| e.to_string())?;
     }
-    writeln!(out, "]}}").map_err(|e| e.to_string())?;
+    s.push_str("]}");
+    // Ignore EPIPE so `osview-rs ... | head` exits 0.
+    let _ = writeln!(std::io::stdout().lock(), "{s}");
     Ok(())
+}
+
+fn json_str(s: &str) -> String {
+    let mut o = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o
 }
 
 mod selftest {
@@ -316,7 +381,10 @@ mod selftest {
             .chunks_exact(3)
             .filter(|px| **px != [24, 24, 28])
             .count();
-        assert!(colored > (cam.width * cam.height) / 20, "image nearly empty");
+        assert!(
+            colored > (cam.width * cam.height) / 20,
+            "image nearly empty"
+        );
 
         let tmp = std::env::temp_dir().join("osview-rs-selftest.ply");
         let path = tmp.to_str().unwrap().to_string();

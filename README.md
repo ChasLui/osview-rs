@@ -1,6 +1,9 @@
 # osview-rs
 
-![demo render](docs/render.png)
+[![CI](https://github.com/ChasLui/osview-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/ChasLui/osview-rs/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+![demo render](https://raw.githubusercontent.com/ChasLui/osview-rs/main/docs/render.png)
 
 Headless rewrite of OpenScene's `osview` for machine use: reads a PLY point
 cloud plus per-point CLIP features, scores one query vector, and writes a PNG
@@ -8,10 +11,12 @@ and a JSON top-k report. No display, no GLUT, no GPU.
 
 Reproduced semantics (from `osview.cpp` in the OpenScene demo):
 
-- the i-th feature row belongs to the i-th PLY vertex (pairing is by index, not name);
+- the i-th feature row belongs to the i-th PLY vertex (pairing is by index,
+  not name);
 - feature rows are L2-normalized on load; zero rows stay zero and never match;
 - score = dot product of the row with the (normalized) query vector = cosine;
-- points with `score < --range-min` keep their PLY vertex color; the rest use a
+- points with `score < --range-min` keep their PLY vertex color (grey when the
+  PLY lacks a full `red green blue` triplet); the rest use a
   blue→yellow ramp between `--range-min` and `--range-max` (osview defaults
   0.05 / 0.10).
 
@@ -24,6 +29,12 @@ files (`-image_directory`).
 ```bash
 cargo build --release
 # binary: target/release/osview-rs (honours CARGO_TARGET_DIR)
+```
+
+Or install the binary into `~/.cargo/bin`:
+
+```bash
+cargo install --path .
 ```
 
 ## Usage
@@ -39,29 +50,26 @@ Inputs
 - `--points`: PLY, `ascii` or `binary_little_endian`, vertex `x y z` plus
   optional `red green blue` (uchar or float 0-1).
 - `--features`: `.npy` `[N, D]` float16/32/64, C order. `D` is whatever width
-  produced them (CLIP ViT-L/14@336px → 768).
-- `--query`: `.npy` `[1, D]`, `[D, 1]` or `[D]`. `clip_server.py` writes
-  `[1, 768]` float32.
+  produced them (CLIP ViT-L/14 → 768).
+- `--query`: `.npy` `[1, D]` or `[D]` — a CLIP text embedding in the same space
+  as the features (e.g. `[1, 768]` float32).
 
 Outputs
 
-- PNG (`--out`): orthographic projection on `xy`, `xz` or `yz`; depth buffer
-  keeps the nearest splat; `--radius` controls point size.
+- PNG (`--out`): orthographic projection on `xy`, `xz` or `yz`; the depth
+  buffer keeps the splat with the largest coordinate on the depth axis (camera
+  on the +axis); `--radius` is a square half-width in pixels (0..=64).
 - JSON report (`--report`): `points`, `dim`, `view`, `range`, `above_min`,
-  and `matches` (index, score, xyz) for the top `--topk` points.
+  and `matches` (`i`, `score`, `p` per point) for the top `--topk` points.
 - stdout: one-line JSON summary with the top 10.
 
-Query vector from OpenScene's helper:
-
-```bash
-python3 demo/clip_server.py --out_dir tmp &   # writes tmp/<query>.npy
-# or any CLIP text encoder producing the same 768-d space
-```
+Query vector: save any CLIP text embedding in the same space as the features
+as `.npy` — OpenScene's `demo/clip_server.py` does this upstream.
 
 ## Tests
 
 ```bash
-cargo test --release     # NPY parse/normalize, binary PLY
+cargo test --release     # NPY parse/normalize/truncation, PLY shapes/colors/counts
 cargo run --release -- --selftest   # ranking, render coverage, ascii PLY
 ```
 
@@ -86,3 +94,25 @@ osview-rs --points demo/sphere.ply --features demo/feats.npy \
   and reuse only the scoring/report part.
 - Scoring is single-query. For class argmax, loop over class vectors and keep
   the max per point, then reuse the same renderer.
+
+## Development
+
+`scripts/verify.sh` runs CI parity (fmt, clippy on all targets, tests,
+`--selftest`) plus a demo render gated with `jq`. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for PR expectations.
+
+## Agent integration
+
+- [AGENTS.md](AGENTS.md) — commands, invariants and the verification loop for
+  coding agents; [CLAUDE.md](CLAUDE.md) and
+  [.github/copilot-instructions.md](.github/copilot-instructions.md) point to it.
+- `skills/osview-rs/SKILL.md` — runtime usage skill for agents driving the CLI
+  (flags, outputs, jq recipes, error table), symlinked at
+  `.claude/skills/osview-rs` for Claude Code.
+- [docs/report.schema.json](docs/report.schema.json) — JSON Schema for the
+  `--report` output.
+- `scripts/verify.sh` — one-command verification.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Security reports: [SECURITY.md](SECURITY.md).

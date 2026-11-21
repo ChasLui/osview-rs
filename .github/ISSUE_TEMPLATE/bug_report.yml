@@ -1,0 +1,52 @@
+name: Bug report
+description: Something parsed, scored or rendered wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach private point clouds or feature files. Describe the
+        format instead (PLY properties, NPY dtype/shape) and, if possible,
+        reproduce with `demo/gen_demo.py` or a synthetic input.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: 0.1.0 / main@abcdef1
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The full osview-rs invocation, including flags.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the error message or the wrong output (scores, colors, JSON).
+    validations:
+      required: true
+  - type: textarea
+    id: inputs
+    attributes:
+      label: Input description
+      description: PLY format (ascii/binary_little_endian), properties, vertex count, NPY dtype/shape, query source.
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: OS and rustc version
+      placeholder: macOS 27 / rustc 1.95.0
+    validations:
+      required: false

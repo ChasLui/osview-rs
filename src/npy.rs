@@ -1,4 +1,5 @@
-// Minimal NPY reader: little-endian float16/32/64, C order, 2-D (or 1-D as N x 1).
+// Minimal NPY reader: little-endian float16/32/64, C order, 2-D (rows x dim)
+// or 1-D (read as one row, 1 x N).
 // Rows are L2-normalized on load, mirroring OpenScene's osview behavior
 // (zero rows stay zero so they never win a query).
 use std::fs;
@@ -11,8 +12,25 @@ pub struct Matrix {
 }
 
 pub fn read(path: &str) -> io::Result<Matrix> {
-    let bytes = fs::read(path)?;
+    let bytes = read_regular(path)?;
     parse(&bytes)
+}
+
+fn read_regular(path: &str) -> io::Result<Vec<u8>> {
+    let md = fs::metadata(path)?;
+    if !md.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    if md.len() > 8 << 30 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "input larger than 8 GiB",
+        ));
+    }
+    fs::read(path)
 }
 
 pub fn parse(bytes: &[u8]) -> io::Result<Matrix> {
@@ -58,56 +76,60 @@ pub fn parse(bytes: &[u8]) -> io::Result<Matrix> {
         .trim_start_matches('(')
         .trim_end_matches(')')
         .split(',')
-        .filter_map(|s| {
-            let s = s.trim();
-            if s.is_empty() {
-                None
-            } else {
-                s.parse::<usize>().ok()
-            }
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| {
+            s.trim()
+                .parse::<usize>()
+                .map_err(|_| bad(&format!("bad shape dim {s:?}")))
         })
-        .collect();
+        .collect::<io::Result<Vec<_>>>()?;
     let (rows, dim) = match dims.as_slice() {
         [n] => (1, *n),
         [n, d] => (*n, *d),
         _ => return Err(bad("only 1-D or 2-D arrays are supported")),
     };
 
+    if dim == 0 {
+        return Err(bad("empty feature dimension"));
+    }
+    let elems = rows
+        .checked_mul(dim)
+        .ok_or_else(|| bad("shape too large"))?;
     let data_start = hstart + hlen;
     let avail = &bytes[data_start..];
-    let mut data = Vec::with_capacity(rows * dim);
+    let item: usize = match descr {
+        "<f2" | "f2" => 2,
+        "<f4" | "f4" => 4,
+        "<f8" | "f8" => 8,
+        other => return Err(bad(&format!("unsupported dtype {other}"))),
+    };
+    let need = elems
+        .checked_mul(item)
+        .ok_or_else(|| bad("payload too large"))?;
+    if avail.len() < need {
+        return Err(bad("truncated payload"));
+    }
+    let mut data = Vec::with_capacity(elems);
     match descr {
         "<f2" | "f2" => {
-            let need = rows * dim * 2;
-            if avail.len() < need {
-                return Err(bad("truncated f16 payload"));
-            }
             for c in avail[..need].chunks_exact(2) {
                 let bits = u16::from_le_bytes([c[0], c[1]]);
                 data.push(f16_to_f32(bits));
             }
         }
         "<f4" | "f4" => {
-            let need = rows * dim * 4;
-            if avail.len() < need {
-                return Err(bad("truncated f32 payload"));
-            }
             for c in avail[..need].chunks_exact(4) {
                 data.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
             }
         }
         "<f8" | "f8" => {
-            let need = rows * dim * 8;
-            if avail.len() < need {
-                return Err(bad("truncated f64 payload"));
-            }
             for c in avail[..need].chunks_exact(8) {
-                data.push(f64::from_le_bytes([
-                    c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
-                ]) as f32);
+                data.push(
+                    f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]) as f32,
+                );
             }
         }
-        other => return Err(bad(&format!("unsupported dtype {other}"))),
+        _ => unreachable!(),
     }
 
     normalize_rows(&mut data, dim);
@@ -117,7 +139,7 @@ pub fn parse(bytes: &[u8]) -> io::Result<Matrix> {
 fn normalize_rows(data: &mut [f32], dim: usize) {
     for row in data.chunks_mut(dim) {
         let norm = row.iter().map(|v| v * v).sum::<f32>().sqrt();
-        if norm > 1e-12 {
+        if norm.is_finite() && norm > 1e-12 {
             for v in row.iter_mut() {
                 *v /= norm;
             }
@@ -183,9 +205,8 @@ mod tests {
     use super::*;
 
     fn npy_f32(rows: usize, dim: usize, vals: &[f32]) -> Vec<u8> {
-        let header = format!(
-            "{{'descr': '<f4', 'fortran_order': False, 'shape': ({rows}, {dim}), }}"
-        );
+        let header =
+            format!("{{'descr': '<f4', 'fortran_order': False, 'shape': ({rows}, {dim}), }}");
         let mut h = header.into_bytes();
         while (10 + h.len() + 1) % 16 != 0 {
             h.push(b' ');
@@ -204,9 +225,8 @@ mod tests {
     }
 
     fn npy_f16(rows: usize, dim: usize, bits: &[u16]) -> Vec<u8> {
-        let header = format!(
-            "{{'descr': '<f2', 'fortran_order': False, 'shape': ({rows}, {dim}), }}"
-        );
+        let header =
+            format!("{{'descr': '<f2', 'fortran_order': False, 'shape': ({rows}, {dim}), }}");
         let mut h = header.into_bytes();
         while (10 + h.len() + 1) % 16 != 0 {
             h.push(b' ');
@@ -241,5 +261,25 @@ mod tests {
         assert_eq!((m.rows, m.dim), (2, 3));
         assert!((m.data[0] - 1.0).abs() < 1e-6);
         assert_eq!(m.data[3..6], [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn rejects_zero_dim() {
+        let raw = npy_f32(2, 0, &[]);
+        assert!(parse(&raw).is_err());
+    }
+
+    #[test]
+    fn rejects_short_payload() {
+        let mut raw = npy_f32(4, 2, &[0.0; 8]);
+        raw.truncate(raw.len() - 16);
+        assert!(parse(&raw).is_err());
+    }
+
+    #[test]
+    fn zeroes_non_finite_norm_rows() {
+        let raw = npy_f32(1, 2, &[f32::INFINITY, 1.0]);
+        let m = parse(&raw).unwrap();
+        assert_eq!(m.data, [0.0, 0.0]);
     }
 }

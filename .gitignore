@@ -3,3 +3,4 @@ demo/*.ply
 demo/*.npy
 demo/*.png
 demo/*.json
+.DS_Store

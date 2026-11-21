@@ -3,7 +3,11 @@
 
 The query highlights the +x hemisphere, so the render should be yellow there.
 """
+from pathlib import Path
+
 import numpy as np
+
+OUT = Path(__file__).resolve().parent
 
 rng = np.random.default_rng(7)
 n = 200
@@ -17,7 +21,7 @@ pts = np.stack(
 rgb = np.full((pts.shape[0], 3), 170, np.uint8)
 rgb[np.abs(pts[:, 2]) < 0.03] = [210, 60, 60]
 
-with open("sphere.ply", "w") as f:
+with open(OUT / "sphere.ply", "w") as f:
     f.write(
         "ply\nformat ascii 1.0\nelement vertex %d\n"
         "property float x\nproperty float y\nproperty float z\n"
@@ -29,9 +33,9 @@ with open("sphere.ply", "w") as f:
 
 feat = 0.01 * rng.standard_normal((pts.shape[0], 768)).astype(np.float32)
 feat[:, 0] = np.where(pts[:, 0] > 0.25, 1.0, 0.02)
-np.save("feats.npy", feat.astype(np.float16))
+np.save(OUT / "feats.npy", feat.astype(np.float16))
 
 q = np.zeros((1, 768), np.float32)
 q[0, 0] = 1.0
-np.save("query.npy", q)
+np.save(OUT / "query.npy", q)
 print(f"{pts.shape[0]} points, features {feat.shape}")

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ChasLui/osview-rs/docs/report.schema.json",
+  "title": "osview-rs report",
+  "description": "Output of --report: top-k matches for one query vector.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "points",
+    "dim",
+    "view",
+    "range",
+    "above_min",
+    "matches"
+  ],
+  "properties": {
+    "points": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "dim": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "view": {
+      "enum": [
+        "xy",
+        "xz",
+        "yz"
+      ]
+    },
+    "range": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "above_min": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "i",
+          "score",
+          "p"
+        ],
+        "properties": {
+          "i": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "score": {
+            "type": "number"
+          },
+          "p": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          }
+        }
+      }
+    }
+  }
+}
