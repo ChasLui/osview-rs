@@ -20,9 +20,9 @@ Reproduced semantics (from `osview.cpp` in the OpenScene demo):
   blue→yellow ramp between `--range-min` and `--range-max` (osview defaults
   0.05 / 0.10).
 
-Not implemented: the interactive window, camera orbit/zoom, CLIP text encoding
-(pass a `.npy` text embedding instead), `.ssa/.conf` scenes, per-image feature
-files (`-image_directory`).
+Not implemented: the interactive window (no live orbit — script
+`--yaw`/`--pitch` instead), CLIP text encoding (pass a `.npy` text embedding
+instead), `.ssa/.conf` scenes, per-image feature files (`-image_directory`).
 
 ## Build
 

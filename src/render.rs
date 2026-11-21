@@ -36,7 +36,7 @@ pub struct Camera {
 pub fn render(cloud: &Cloud, scores: &[f32], cam: &Camera) -> Vec<u8> {
     let (w, h) = (cam.width, cam.height);
     let mut rgb = vec![0u8; w * h * 3];
-    let mut depth = vec![f32::NEG_INFINITY; w * h];
+    let mut depth = vec![f64::NEG_INFINITY; w * h];
     for px in rgb.chunks_exact_mut(3) {
         px.copy_from_slice(&[24, 24, 28]);
     }
@@ -102,7 +102,6 @@ pub fn render(cloud: &Cloud, scores: &[f32], cam: &Camera) -> Vec<u8> {
         let sy = (h as f64 * 0.5 - (b * 0.5 - cb * 0.5) * scale - pan_y)
             .round()
             .clamp(-1e7, 1e7) as i64;
-        let d = d as f32;
         let base = cloud.rgb.as_ref().map(|c| c[i]).unwrap_or([190, 190, 190]);
         let score = scores.get(i).copied().unwrap_or(f32::NEG_INFINITY);
         let color = if score >= cam.range_min {
@@ -235,21 +234,71 @@ mod tests {
             rgb: None,
         };
         for view in [View::XY, View::XZ, View::YZ] {
-            let mut c = cam();
-            c.view = view;
-            c.yaw = 30.0;
-            c.pitch = 15.0;
-            c.zoom = 1.1;
-            c.pan_x = 4;
-            c.pan_y = -3;
-            let img = render(&cloud, &[1.0; 4], &c);
-            assert_eq!(img.len(), 64 * 64 * 3);
+            let mut base = cam();
+            base.view = view;
+            base.zoom = 1.1;
+            base.pan_x = 4;
+            base.pan_y = -3;
+            let mut rot = cam();
+            rot.view = view;
+            rot.zoom = base.zoom;
+            rot.pan_x = base.pan_x;
+            rot.pan_y = base.pan_y;
+            rot.yaw = 30.0;
+            rot.pitch = 15.0;
+            let plain = render(&cloud, &[1.0; 4], &base);
+            let yawed = render(&cloud, &[1.0; 4], &rot);
+            assert_eq!(plain.len(), 64 * 64 * 3);
             assert!(
-                painted(&img) > 0,
+                painted(&yawed) > 0,
                 "{} lost every point under rotation",
                 view.name()
             );
+            assert_ne!(
+                plain,
+                yawed,
+                "{} ignored yaw/pitch (identical images)",
+                view.name()
+            );
         }
+    }
+
+    #[test]
+    fn depth_order_survives_rotation_beyond_f32_range() {
+        let mut c = cam();
+        c.radius = 0;
+        c.yaw = 45.0;
+        let cloud = Cloud {
+            xyz: vec![
+                [-3.181_980_6e38, 0.0, 3.181_980_6e38],
+                [-2.474_873_6e38, 0.0, 2.474_873_6e38],
+                [1e38, 0.0, 0.0],
+            ],
+            rgb: None,
+        };
+        let img = render(&cloud, &[1.0, 0.0, 0.0], &c);
+        assert!(
+            img.chunks_exact(3).any(|px| px == [255, 232, 40]),
+            "the nearer point must win even when both depths exceed f32::MAX"
+        );
+    }
+
+    #[test]
+    fn rotation_near_f32_max_stays_finite() {
+        let mut c = cam();
+        c.radius = 0;
+        c.yaw = 45.0;
+        let cloud = Cloud {
+            xyz: vec![[3e38, 0.0, 3e38]],
+            rgb: None,
+        };
+        let img = render(&cloud, &[1.0], &c);
+        let center = (32 * 64 + 32) * 3;
+        assert_ne!(
+            &img[center..center + 3],
+            [24, 24, 28],
+            "rotation at f32::MAX overflowed; the point should land at the centre"
+        );
     }
 
     #[test]

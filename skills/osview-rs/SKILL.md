@@ -108,6 +108,8 @@ jq -e '.above_min > 0' top.json    # gate for scripts
 | `input larger than 8 GiB` | slice or down-sample the input |
 | `--out must not overwrite an input file` | pick another output path |
 | `--out and --report must differ` | use distinct paths |
+| `yaw/pitch must be finite` | pass finite degrees |
+| `zoom must be finite and > 0` | pass a positive zoom factor |
 
 ## Verify
 

@@ -14,7 +14,7 @@ design decision, not a refactor.
 cargo build --release            # binary honours CARGO_TARGET_DIR
 cargo fmt --check
 cargo clippy --release --locked --all-targets -- -D warnings
-cargo test --release             # 10 unit tests: npy + ply parsers only
+cargo test --release             # 17 unit tests: npy, ply and render
 cargo run --release -- --selftest   # ranking + render coverage + ascii PLY
 ```
 
@@ -74,9 +74,9 @@ argv -> parse_args -> run:
   `above_min` counts `>=`. Below the threshold the PLY vertex color is kept —
   only when all of `red/green/blue` exist, otherwise gray `[190,190,190]`
   (background is `[24,24,28]`).
-- Depth buffer keeps the *largest* coordinate on the depth axis (camera on the
-  +axis); ties resolve to the later point (`>=`). Do not "correct" to
-  smaller-is-nearer.
+- Depth buffer keeps the *largest* rotated coordinate on the depth axis (camera
+  on the +axis), stored as f64 so depths beyond `f32::MAX` still order; ties
+  resolve to the later point (`>=`). Do not "correct" to smaller-is-nearer.
 - Splat is a square `(2r+1)^2` clipped to the canvas; `--radius 0` is one pixel.
 - Autoscale is global and uniform over the two projected axes with a 4 % margin,
   centered, y flipped; one outlier reframes the whole image.
@@ -85,7 +85,7 @@ argv -> parse_args -> run:
 - Output keys are `i`, `score`, `p` (not index/xyz). JSON must stay valid: no
   NaN/inf may reach output, paths are JSON-escaped. Report scores 6dp; stdout
   `max`/`min` 6dp, `top` entries 4dp.
-- Validation: width/height `1..=8192`, radius `>= 0`, `range_max > range_min`
+- Validation: width/height `1..=8192`, radius `0..=64`, `range_max > range_min`
   and both finite; `--points/--features/--query/--out` mandatory, `--report`
   optional. Defaults: xy, 1600×1200, radius 1, 0.05/0.10, topk 500.
 - Parser forms: `--flag value` only (`--width=800` is an unknown argument),
@@ -118,7 +118,8 @@ reproduction, not pixel-exact. Fix only genuine defects.
 
 ## Sharp edges (document, don't silently fix)
 
-Full-file reads capped at 8 GiB (non-regular inputs rejected); single-threaded
+Full-file reads capped at 8 GiB (non-regular inputs rejected); depth buffer
+is f64 (8 B/px, 537 MB at 8192²); single-threaded
 O(N·D) scoring; square splats, `--radius` capped at 64; no alpha; PNG is
 written before the report (a report failure leaves a valid PNG and exit 1);
 `--out` is not atomic and must not alias an input or `--report`; `--out`
