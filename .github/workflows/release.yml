@@ -56,6 +56,42 @@ jobs:
         with:
           subject-path: "${{ github.workspace }}/osview-rs-${{ matrix.target }}.tar.gz"
 
+      - name: Build C SDK library
+        run: cargo build --release --locked --lib --target ${{ matrix.target }}
+      - name: Package C SDK
+        run: |
+          set -euo pipefail
+          dir="osview-c-sdk-${{ matrix.target }}"
+          mkdir -p "$dir/include" "$dir/lib"
+          cp include/osview.h "$dir/include/"
+          cp "target/${{ matrix.target }}/release/libosview_rs.a" "$dir/lib/"
+          for ext in so dylib; do
+            src="target/${{ matrix.target }}/release/libosview_rs.$ext"
+            if [ -f "$src" ]; then cp "$src" "$dir/lib/"; fi
+          done
+          cp examples/c/smoke.c LICENSE "$dir/"
+          tar -czf "$dir.tar.gz" "$dir"
+      - name: Package GUI app bundle
+        if: runner.os == 'macOS'
+        run: |
+          scripts/bundle-gui.sh "${{ matrix.target }}"
+          ditto -c -k --norsrc --noextattr --keepParent dist/osview-rs.app \
+            "osview-gui-${{ matrix.target }}.zip"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "osview-c-sdk-${{ matrix.target }}.tar.gz"
+      - name: Upload C SDK
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" osview-c-sdk-*.tar.gz --clobber
+      - name: Upload GUI bundle
+        if: runner.os == 'macOS'
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" osview-gui-*.zip --clobber
+
   publish:
     needs: build
     runs-on: ubuntu-latest

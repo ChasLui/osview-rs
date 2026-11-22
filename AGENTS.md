@@ -177,6 +177,16 @@ confirm the window renders non-background pixels.
 GUI changes additionally: `cargo test --features gui` (input mapping) and
 `scripts/bundle-gui.sh` so the bundle stays buildable.
 
+## Releases
+
+Tagging `vX.Y.Z` (must equal `Cargo.toml` version) runs
+`.github/workflows/release.yml`: it publishes the CLI tarball per target, a
+`osview-c-sdk-<target>.tar.gz` (header, staticlib + dylib/so, `smoke.c`,
+LICENSE) and, on macOS, `osview-gui-<target>.zip` with the `.app` bundle
+(`ditto --norsrc --noextattr`, no AppleDouble noise). The release starts as a
+draft and is published by the workflow once every target uploads. Attestations
+cover the CLI tarball and the C SDK.
+
 The runtime-facing usage guide for agents is `skills/osview-rs/SKILL.md`
 (symlinked at `.claude/skills/osview-rs`); keep its flag table and error table
 in sync with `usage()` and the messages in `src/`.

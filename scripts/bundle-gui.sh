@@ -3,6 +3,11 @@
 # from a shell cannot reliably become the frontmost app on macOS (focus APIs
 # report success while the previous app keeps receiving keys), so packaging a
 # real .app is what makes keyboard/mouse verification and `open -a` work.
+#
+#   scripts/bundle-gui.sh [cargo-target]
+#
+# The optional target (e.g. aarch64-apple-darwin) is for release builds; the
+# bundle always keeps the host layout, so it must match the host architecture.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -12,11 +17,17 @@ version="$(printf '%s' "$meta" | jq -r '.packages[0].version')"
 target_dir="$(printf '%s' "$meta" | jq -r '.target_directory')"
 app="dist/osview-rs.app"
 
-cargo build --release --locked --features gui
+build=(cargo build --release --locked --features gui --bin osview-gui)
+bin_dir="$target_dir/release"
+if [[ $# -gt 0 ]]; then
+    build+=(--target "$1")
+    bin_dir="$target_dir/$1/release"
+fi
+"${build[@]}"
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS"
-cp "$target_dir/release/osview-gui" "$app/Contents/MacOS/osview-gui"
+cp "$bin_dir/osview-gui" "$app/Contents/MacOS/osview-gui"
 cat >"$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

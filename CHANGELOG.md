@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI: C-SDK link check and a macOS GUI job (GUI input tests + app bundle).
 - `scripts/bundle-gui.sh`: `dist/osview-rs.app` with a generated Info.plist so
   macOS can activate the window for keyboard/mouse use.
+- Tagged releases now also ship `osview-c-sdk-<target>.tar.gz` (header, libs,
+  smoke.c, LICENSE) and, on macOS, `osview-gui-<target>.zip` with the app.
 
 ### Changed
 
