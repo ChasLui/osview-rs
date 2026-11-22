@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-22
+
 ### Added
 
 - `osview_rs` library: `Dataset` load/validate/score/top-k, json report and
@@ -60,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selftest, docs lint, zizmor on PRs) and a tag-driven release workflow for
   Linux x86_64 (static musl) and macOS arm64 with sha256 checksums.
 
-[Unreleased]: https://github.com/ChasLui/osview-rs/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ChasLui/osview-rs/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ChasLui/osview-rs/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ChasLui/osview-rs/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ChasLui/osview-rs/releases/tag/v0.1.0
