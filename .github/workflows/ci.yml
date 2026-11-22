@@ -58,6 +58,9 @@ jobs:
           key: gui
       - run: cargo clippy --release --locked --features gui --all-targets -- -D warnings
       - run: cargo build --release --locked --features gui --bin osview-gui
+      - run: cargo test --release --locked --features gui # input mapping, no window
+      - run: scripts/bundle-gui.sh
+      - run: plutil -lint dist/osview-rs.app/Contents/Info.plist
 
   docs:
     runs-on: ubuntu-latest

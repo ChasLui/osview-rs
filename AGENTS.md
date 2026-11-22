@@ -55,7 +55,14 @@ run does not update it.
   errors exit 1; `-h/--help` exits 0.
 - `src/gui/main.rs` — `osview-gui` (feature `gui`, minifb): orbit/pan/zoom,
   view and ramp keys over the same renderer; `--frames N` renders N frames,
-  prints the painted count and exits for smoke tests.
+  prints the painted count and exits for smoke tests. `scripts/bundle-gui.sh`
+  wraps the binary in `dist/osview-rs.app` (Info.plist, version from cargo
+  metadata); a bare executable cannot reliably become the frontmost app, so
+  `open -a dist/osview-rs.app` is the supported way to launch it for mouse and
+  keyboard testing. Input mapping (`key_action`/`drag_step`/`wheel_step`) is
+  unit-tested under `--features gui`; OS event delivery itself is not testable
+  from scripts (synthetic keystrokes only land when the window is the active
+  key window — verify that manually).
 - `src/ffi.rs` — C ABI; the only module allowed `unsafe` (`allow` inside the
   module, crate lint is `deny`). `include/osview.h` and
   `examples/c/smoke.c` document/exercise it.
@@ -167,6 +174,8 @@ plus the C smoke test. For CLI/report changes also validate the report against
 following the `npy_f32` / `npy_f16` helpers; do not add dev-dependencies. Never
 commit generated demo data. GUI changes: at least `--frames 2` locally, and
 confirm the window renders non-background pixels.
+GUI changes additionally: `cargo test --features gui` (input mapping) and
+`scripts/bundle-gui.sh` so the bundle stays buildable.
 
 The runtime-facing usage guide for agents is `skills/osview-rs/SKILL.md`
 (symlinked at `.claude/skills/osview-rs`); keep its flag table and error table

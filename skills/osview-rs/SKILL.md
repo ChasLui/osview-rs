@@ -70,6 +70,8 @@ The same renderer is available without re-implementing scoring:
   --features ... --query ...`. Drag orbits, right/shift-drag pans, wheel zooms,
   `1`/`2`/`3` switch views, `[`/`]` move the ramp top, `r` resets, `q` quits.
   `--frames N` renders N frames, prints the painted-pixel count and exits.
+  On macOS run `scripts/bundle-gui.sh` and `open -a dist/osview-rs.app --args
+  ...` when the window must hold keyboard focus; a bare binary does not.
 - C SDK: build once, then link `-losview_rs` with `include/osview.h`; open a
   handle, load the three inputs, `osview_score`, then `osview_render` into your
   own RGB buffer or `osview_top_k`. See `examples/c/smoke.c`.

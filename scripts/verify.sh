@@ -6,12 +6,14 @@ cd "$(dirname "$0")/.."
 cargo fmt --check
 cargo clippy --release --locked --all-targets -- -D warnings
 cargo test --release --locked
-cargo build --release --locked   # emits libosview_rs.{a,dylib,so}
+cargo build --release --locked # emits libosview_rs.{a,dylib,so}
 cargo run --release --locked -- --selftest
 cargo package --locked --no-verify --allow-dirty
 
 # Optional GUI frontend (needs a windowing backend only at runtime).
 cargo build --release --locked --features gui --bin osview-gui
+cargo test --release --locked --features gui -q # input mapping, no window
+scripts/bundle-gui.sh >/dev/null                # dist/osview-rs.app
 
 # C SDK: header compiles and the shared library exports the ABI.
 tmp="$(mktemp -d -t osview-verify.XXXXXX)"

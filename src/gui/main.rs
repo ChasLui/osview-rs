@@ -201,32 +201,11 @@ q/Esc: quit"
         }
 
         for k in window.get_keys_pressed(KeyRepeat::No) {
-            match k {
-                Key::Escape | Key::Q => return Ok(()),
-                Key::Key1 => cam.view = View::XY,
-                Key::Key2 => cam.view = View::XZ,
-                Key::Key3 => cam.view = View::YZ,
-                Key::LeftBracket => {
-                    let step = (cam.range_max - cam.range_min) * 0.1;
-                    if cam.range_max - step > cam.range_min {
-                        cam.range_max -= step;
-                    } else {
-                        continue;
-                    }
-                }
-                Key::RightBracket => {
-                    cam.range_max += (cam.range_max - cam.range_min) * 0.1;
-                }
-                Key::R => {
-                    cam.yaw = 0.0;
-                    cam.pitch = 0.0;
-                    cam.zoom = 1.0;
-                    cam.pan_x = 0;
-                    cam.pan_y = 0;
-                }
-                _ => continue,
+            match key_action(k, &mut cam) {
+                KeyAction::Quit => return Ok(()),
+                KeyAction::Dirty => dirty = true,
+                KeyAction::Ignored => {}
             }
-            dirty = true;
         }
 
         let left = window.get_mouse_down(MouseButton::Left);
@@ -235,15 +214,7 @@ q/Esc: quit"
         let pos = window.get_mouse_pos(MouseMode::Clamp);
         if left || right {
             if let (Some(p), Some(prev)) = (pos, last_mouse) {
-                let (dx, dy) = (p.0 - prev.0, p.1 - prev.1);
-                if dx != 0.0 || dy != 0.0 {
-                    if right || shift {
-                        cam.pan_x += dx as i32;
-                        cam.pan_y -= dy as i32;
-                    } else {
-                        cam.yaw += dx * 0.4;
-                        cam.pitch = (cam.pitch + dy * 0.4).clamp(-89.0, 89.0);
-                    }
+                if drag_step(&mut cam, prev, p, right || shift) {
                     dirty = true;
                 }
             }
@@ -253,8 +224,7 @@ q/Esc: quit"
         }
 
         if let Some((_, dy)) = window.get_scroll_wheel() {
-            if dy != 0.0 && dy.is_finite() {
-                cam.zoom = (cam.zoom * 1.15f32.powf(dy)).clamp(0.01, 100.0);
+            if wheel_step(&mut cam, dy) {
                 dirty = true;
             }
         }
@@ -269,9 +239,166 @@ q/Esc: quit"
     Ok(())
 }
 
+enum KeyAction {
+    Quit,
+    Dirty,
+    Ignored,
+}
+
+/// Map one key press onto the camera. Kept apart from the minifb loop so the
+/// mapping is testable without a window or OS event delivery.
+fn key_action(k: Key, cam: &mut Camera) -> KeyAction {
+    match k {
+        Key::Escape | Key::Q => return KeyAction::Quit,
+        Key::Key1 => cam.view = View::XY,
+        Key::Key2 => cam.view = View::XZ,
+        Key::Key3 => cam.view = View::YZ,
+        Key::LeftBracket => {
+            let step = (cam.range_max - cam.range_min) * 0.1;
+            if cam.range_max - step <= cam.range_min {
+                return KeyAction::Ignored;
+            }
+            cam.range_max -= step;
+        }
+        Key::RightBracket => cam.range_max += (cam.range_max - cam.range_min) * 0.1,
+        Key::R => {
+            cam.yaw = 0.0;
+            cam.pitch = 0.0;
+            cam.zoom = 1.0;
+            cam.pan_x = 0;
+            cam.pan_y = 0;
+        }
+        _ => return KeyAction::Ignored,
+    }
+    KeyAction::Dirty
+}
+
+/// One pointer move while a button is down; `pan` selects pan over orbit.
+fn drag_step(cam: &mut Camera, prev: (f32, f32), now: (f32, f32), pan: bool) -> bool {
+    let (dx, dy) = (now.0 - prev.0, now.1 - prev.1);
+    if dx == 0.0 && dy == 0.0 {
+        return false;
+    }
+    if pan {
+        cam.pan_x += dx as i32;
+        cam.pan_y -= dy as i32;
+    } else {
+        cam.yaw += dx * 0.4;
+        cam.pitch = (cam.pitch + dy * 0.4).clamp(-89.0, 89.0);
+    }
+    true
+}
+
+fn wheel_step(cam: &mut Camera, dy: f32) -> bool {
+    if dy == 0.0 || !dy.is_finite() {
+        return false;
+    }
+    cam.zoom = (cam.zoom * 1.15f32.powf(dy)).clamp(0.01, 100.0);
+    true
+}
+
 fn render_buffer(ds: &Dataset, cam: &Camera) -> Vec<u32> {
     let rgb = render::render(&ds.cloud, &ds.scores, cam);
     rgb.chunks_exact(3)
         .map(|p| ((p[0] as u32) << 16) | ((p[1] as u32) << 8) | p[2] as u32)
         .collect()
+}
+#[cfg(test)]
+mod tests {
+    use super::{drag_step, key_action, wheel_step, KeyAction};
+    use osview_rs::{Camera, View};
+
+    fn cam() -> Camera {
+        Camera {
+            view: View::XY,
+            width: 320,
+            height: 240,
+            radius: 1,
+            range_min: 0.05,
+            range_max: 0.10,
+            yaw: 0.0,
+            pitch: 0.0,
+            zoom: 1.0,
+            pan_x: 0,
+            pan_y: 0,
+        }
+    }
+
+    fn key(k: minifb::Key, cam: &mut Camera) -> KeyAction {
+        key_action(k, cam)
+    }
+
+    #[test]
+    fn view_keys_switch_projection() {
+        let mut c = cam();
+        assert!(matches!(key(minifb::Key::Key2, &mut c), KeyAction::Dirty));
+        assert_eq!(c.view, View::XZ);
+        key(minifb::Key::Key3, &mut c);
+        assert_eq!(c.view, View::YZ);
+        key(minifb::Key::Key1, &mut c);
+        assert_eq!(c.view, View::XY);
+    }
+
+    #[test]
+    fn quit_keys_stop_the_loop() {
+        let mut c = cam();
+        assert!(matches!(key(minifb::Key::Q, &mut c), KeyAction::Quit));
+        assert!(matches!(key(minifb::Key::Escape, &mut c), KeyAction::Quit));
+        assert!(matches!(key(minifb::Key::A, &mut c), KeyAction::Ignored));
+    }
+
+    #[test]
+    fn range_keys_scale_the_ramp_but_keep_it_inverted() {
+        let mut c = cam();
+        key(minifb::Key::RightBracket, &mut c);
+        assert!((c.range_max - 0.105).abs() < 1e-6);
+        key(minifb::Key::LeftBracket, &mut c);
+        // The step is 10% of the *current* span, so the round trip is 0.0995.
+        assert!((c.range_max - 0.0995).abs() < 1e-6);
+        for _ in 0..200 {
+            key(minifb::Key::LeftBracket, &mut c);
+        }
+        assert!(c.range_max > c.range_min);
+    }
+
+    #[test]
+    fn reset_restores_the_camera() {
+        let mut c = cam();
+        c.yaw = 30.0;
+        c.pitch = -20.0;
+        c.zoom = 3.0;
+        c.pan_x = 7;
+        c.pan_y = -9;
+        key(minifb::Key::R, &mut c);
+        assert_eq!(
+            (c.yaw, c.pitch, c.zoom, c.pan_x, c.pan_y),
+            (0.0, 0.0, 1.0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn drag_orbit_and_pan_differ_and_clamp_pitch() {
+        let mut c = cam();
+        assert!(drag_step(&mut c, (10.0, 10.0), (12.0, 14.0), false));
+        assert!((c.yaw - 0.8).abs() < 1e-6);
+        assert!((c.pitch - 1.6).abs() < 1e-6);
+        drag_step(&mut c, (0.0, 0.0), (0.0, 10_000.0), false);
+        assert_eq!(c.pitch, 89.0);
+        assert!(drag_step(&mut c, (0.0, 0.0), (5.0, 4.0), true));
+        assert_eq!((c.pan_x, c.pan_y), (5, -4));
+        assert!(!drag_step(&mut c, (1.0, 1.0), (1.0, 1.0), true));
+    }
+
+    #[test]
+    fn wheel_zooms_within_limits() {
+        let mut c = cam();
+        assert!(wheel_step(&mut c, 1.0));
+        assert!((c.zoom - 1.15).abs() < 1e-5);
+        wheel_step(&mut c, 10_000.0);
+        assert_eq!(c.zoom, 100.0);
+        wheel_step(&mut c, -10_000.0);
+        assert_eq!(c.zoom, 0.01);
+        assert!(!wheel_step(&mut c, 0.0));
+        assert!(!wheel_step(&mut c, f32::NAN));
+    }
 }

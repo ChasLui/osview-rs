@@ -4,3 +4,4 @@ demo/*.npy
 demo/*.png
 demo/*.json
 .DS_Store
+/dist

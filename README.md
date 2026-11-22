@@ -52,6 +52,11 @@ with `--frames N` (renders N frames, prints the painted-pixel count, exits).
 osview-gui --points region0.ply --features RPmz2.npy --query chair.npy
 ```
 
+On macOS, `scripts/bundle-gui.sh` wraps the binary in `dist/osview-rs.app` and
+sets the version in its Info.plist; launch with `open -a dist/osview-rs.app`
+when you need the window to become the active app (a shell-launched binary
+cannot reliably take keyboard focus).
+
 C SDK: create a handle, load the three inputs, score, then render into your own
 RGB buffer or pull top-k matches. See `include/osview.h` for the ABI and
 `examples/c/smoke.c` for a complete loader/render/query program.

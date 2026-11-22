@@ -2,7 +2,7 @@
 // depth buffer for occlusion, blue->yellow heat ramp over the affinity range.
 use crate::ply::Cloud;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum View {
     XY,
     XZ,
